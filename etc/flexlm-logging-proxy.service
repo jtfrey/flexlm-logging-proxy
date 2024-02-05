@@ -1,0 +1,19 @@
+#
+# flexlm-logging-proxy.service
+# FLEXlm lmgrd logging proxy
+#
+
+[Unit]
+Description=FLEXlm lmgrd logging proxy
+After=network.service
+
+[Service]
+Type=simple
+User=lmgrd-maple
+Group=lmgrd-maple
+ExecStart=/bin/bash -c "/opt/flexlm-logging-proxy/flexlm-logging-proxy.py -l 1726:localhost:1727 >>/opt/flexlm-logging-proxy/logs/lmgrd-proxy.log 2>&1"
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Runs a MitM TCP proxy that intercepts FLEXlm communications and
 # logs the combination of the FLEXlm user:hostname:display:pid and
@@ -70,20 +70,34 @@ async def lmgrd_reverse_proxy_pipe(rstream, wstream):
     global vendor_proxy
     
     try:
-        # The first packet is the one we want to take a peek at:
-        in_data = await rstream.read(0x35)
+        # The first packet is the one we want to take a peek at; grab the first 6 bytes to get
+        # the checksum and length:
+        in_header_data = await rstream.read(0x6)
+        pkt_len = int.from_bytes(in_header_data[0x4:], byteorder='big', signed=False)
+        in_data = await rstream.read(pkt_len - 6)
         
-        # Expected initial packet is 0x35 (53) bytes long:
+        # Expected initial packet is e.g. 0x35 (53) bytes long:
         #   00000000  2f 25 12 5a 00 35 01 13  00 00 00 00 41 00 00 00  |/%.Z.5......A...|
         #   00000010  00 00 00 00 6d 61 74 68  77 6f 72 6b 73 2e 6c 6d  |....mathworks.lm|
         #   00000020  2e 75 64 65 6c 2e 65 64  75 00 00 00 9c 40 00 00  |.udel.edu....@..|
         #   00000030  00 00 00 54 44                                    |...TD|
-        server_host = in_data[0x14:0x2a].decode('utf-8', 'ignore')
-        server_port = int.from_bytes(in_data[0x2a:0x2e], byteorder='big', signed=False)
+        #
+        # Minus the 6-byte header:
+        #   00000000  01 13 00 00 00 00 41 00  00 00 00 00 00 00 6d 61  |......A.......ma|
+        #   00000010  74 68 77 6f 72 6b 73 2e  6c 6d 2e 75 64 65 6c 2e  |thworks.lm.udel.|
+        #   00000020  65 64 75 00 00 00 9c 40  00 00 00 00 00 54 44     |edu....@.....TD|
+        host_idx = 0xe
+        while host_idx < len(in_data) and in_data[host_idx]:
+            host_idx = host_idx + 1
+        server_host = in_data[0xe:host_idx].decode('utf-8', 'ignore')
+        # Skip the NUL terminator:
+        host_idx = host_idx + 1
+        server_port = int.from_bytes(in_data[host_idx:host_idx+4], byteorder='big', signed=False)
         remote = wstream._transport.get_extra_info('peername')
         hexdump(in_data)
         logging.info('[{:s}:{:d}] lmgrd reply {:s}:{:d}'.format(remote[0], remote[1], server_host, server_port))
-        
+       
+        wstream.write(in_header_data) 
         wstream.write(in_data)
         while not rstream.at_eof():
             in_data = await rstream.read(4096)
